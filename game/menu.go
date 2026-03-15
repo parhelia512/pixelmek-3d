@@ -30,6 +30,16 @@ type Menu interface {
 	Draw(screen *ebiten.Image)
 }
 
+// tickUpdater implementations declare their need to update each game tick
+type tickUpdater interface {
+	update()
+}
+
+// contentUpdater implementations declare their need to update content each time the menu is reopened
+type contentUpdater interface {
+	updateContent(*Game)
+}
+
 type MenuModel struct {
 	active  bool
 	closing bool
@@ -187,7 +197,7 @@ func (g *Game) openMenu() {
 		if gameMenu.root == nil {
 			gameMenu.initMenu()
 		} else {
-			gameMenu.refreshUpdaters()
+			gameMenu.refreshContent()
 		}
 		gameMenu.active = true
 	}

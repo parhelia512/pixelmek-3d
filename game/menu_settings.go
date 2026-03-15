@@ -169,7 +169,8 @@ func settingsContainer(m Menu) widget.PreferredSizeLocateableWidget {
 		missionSettings = gameMissionPage(m)
 		unitSettings = gameUnitPage(m)
 
-		gameMenu.updaters = []settingsUpdater{missionSettings, unitSettings}
+		gameMenu.contentUpdaters = []contentUpdater{missionSettings, unitSettings}
+		gameMenu.tickUpdaters = []tickUpdater{unitSettings}
 	} else {
 		// only show the game options page when not in-mission
 		gameOptions = gameOptionsPage(m)

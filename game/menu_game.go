@@ -8,7 +8,8 @@ import (
 type GameMenu struct {
 	*MenuModel
 	preSelectedPage int
-	updaters        []settingsUpdater
+	contentUpdaters []contentUpdater
+	tickUpdaters    []tickUpdater
 }
 
 func createGameMenu(g *Game) *GameMenu {
@@ -41,9 +42,9 @@ func (m *GameMenu) initMenu() {
 	m.root.AddChild(settings)
 }
 
-func (m *GameMenu) refreshUpdaters() {
-	for _, updater := range m.updaters {
-		updater.update(m.game)
+func (m *GameMenu) refreshContent() {
+	for _, updater := range m.contentUpdaters {
+		updater.updateContent(m.game)
 	}
 }
 
@@ -52,6 +53,9 @@ func (m *GameMenu) Update() {
 		return
 	}
 
+	for _, updater := range m.tickUpdaters {
+		updater.update()
+	}
 	m.ui.Update()
 }
 

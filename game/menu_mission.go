@@ -407,7 +407,7 @@ func createMissionCard(g *Game, res *uiResources, mission *model.Mission, style 
 	return missionCard
 }
 
-func (c *MissionCard) update(g *Game) {
+func (c *MissionCard) updateContent(g *Game) {
 	switch c.style {
 	case MissionCardGame:
 		c.objectivesText.SetText(g.objectives.Text())

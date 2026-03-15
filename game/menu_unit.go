@@ -19,7 +19,7 @@ type UnitMenu struct {
 	*MenuModel
 	purpose      UnitMenuPurpose
 	selectedUnit model.Unit
-	selectedPage *unitPage
+	tickUpdaters []tickUpdater
 }
 
 type UnitMenuPurpose int
@@ -41,7 +41,6 @@ type unitPage struct {
 	title    string
 	content  *widget.Container
 	unit     model.Unit
-	unitCard *UnitCard
 	variants []model.Unit
 }
 
@@ -94,7 +93,6 @@ func createUnitMenu(g *Game, purpose UnitMenuPurpose) *UnitMenu {
 		},
 		purpose:      purpose,
 		selectedUnit: nil,
-		selectedPage: nil,
 	}
 
 	menu.initResources()
@@ -121,9 +119,8 @@ func (m *UnitMenu) initMenu() {
 }
 
 func (m *UnitMenu) Update() {
-	if m.selectedPage != nil && m.selectedPage.unitCard != nil {
-		// update unit card animated image
-		m.selectedPage.unitCard.updateSprite()
+	for _, updater := range m.tickUpdaters {
+		updater.update()
 	}
 	m.ui.Update()
 }
@@ -294,7 +291,6 @@ func unitMenuSelectionContainer(m *UnitMenu) widget.PreferredSizeLocateableWidge
 			m.Root().RequestRelayout()
 
 			m.selectedUnit = nextPage.unit
-			m.selectedPage = nextPage
 		}))
 
 	c.AddChild(pageList)
@@ -431,8 +427,9 @@ func (p *unitPage) setUnit(m *UnitMenu, unit model.Unit) {
 	p.content.RemoveChildren()
 	p.unit = unit
 
-	p.unitCard = createUnitCard(m.game, m.Resources(), unit, UnitCardSelect)
-	p.content.AddChild(p.unitCard)
+	unitCard := createUnitCard(m.game, m.Resources(), unit, UnitCardSelect)
+	m.setUnitCardUpdater(unitCard)
+	p.content.AddChild(unitCard)
 }
 
 func createUnitCard(g *Game, res *uiResources, unit model.Unit, style UnitCardStyle) *UnitCard {
@@ -506,11 +503,6 @@ func createUnitCard(g *Game, res *uiResources, unit model.Unit, style UnitCardSt
 		imageScale := imageH / spriteH
 
 		unitImage := ebiten.NewImage(int(spriteW*imageScale), int(spriteH*imageScale))
-		op := &ebiten.DrawImageOptions{}
-		op.Filter = ebiten.FilterNearest
-		op.GeoM.Scale(imageScale, imageScale)
-		unitImage.DrawImage(sprite.Texture(), op)
-
 		imageLabel = widget.NewGraphic(
 			widget.GraphicOpts.Image(unitImage),
 		)
@@ -553,12 +545,23 @@ func createUnitCard(g *Game, res *uiResources, unit model.Unit, style UnitCardSt
 	// unit weapons and ammo
 	unitCard.updateArmamentContent()
 
-	// TODO: add more content
-
 	return unitCard
 }
 
-func (c *UnitCard) updateSprite() {
+func (m *UnitMenu) setUnitCardUpdater(c *UnitCard) {
+	// make sure only one unit card is set at a time
+	newTickUpdaters := make([]tickUpdater, 0, len(m.tickUpdaters)+1)
+	for _, updater := range m.tickUpdaters {
+		if _, found := updater.(*UnitCard); found {
+			continue
+		}
+		newTickUpdaters = append(newTickUpdaters, updater)
+	}
+	newTickUpdaters = append(newTickUpdaters, c)
+	m.tickUpdaters = newTickUpdaters
+}
+
+func (c *UnitCard) update() {
 	if c.sprite == nil || c.img == nil {
 		return
 	}
@@ -567,8 +570,9 @@ func (c *UnitCard) updateSprite() {
 
 	switch c.sprite.(type) {
 	case *sprites.MechSprite:
-		c.sprite.(*sprites.MechSprite).Update(nil)
-		spriteImg = c.sprite.(*sprites.MechSprite).Texture()
+		mSprite := c.sprite.(*sprites.MechSprite)
+		mSprite.Update(nil)
+		spriteImg = mSprite.Texture()
 	}
 	if spriteImg == nil {
 		return
@@ -758,7 +762,7 @@ func (c *UnitCard) updateArmamentContent() {
 	}
 }
 
-func (c *UnitCard) update(g *Game) {
+func (c *UnitCard) updateContent(g *Game) {
 	if c.unit == nil {
 		return
 	}

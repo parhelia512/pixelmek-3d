@@ -20,18 +20,21 @@ type settingsPageContainer struct {
 }
 
 type settingsPage struct {
-	title    string
-	content  widget.PreferredSizeLocateableWidget
-	updaters []settingsUpdater
+	title           string
+	content         widget.PreferredSizeLocateableWidget
+	contentUpdaters []contentUpdater
+	tickUpdaters    []tickUpdater
 }
 
-type settingsUpdater interface {
-	update(*Game)
+func (s *settingsPage) update() {
+	for _, updater := range s.tickUpdaters {
+		updater.update()
+	}
 }
 
-func (s *settingsPage) update(g *Game) {
-	for _, updater := range s.updaters {
-		updater.update(g)
+func (s *settingsPage) updateContent(g *Game) {
+	for _, updater := range s.contentUpdaters {
+		updater.updateContent(g)
 	}
 }
 
@@ -194,9 +197,9 @@ func gameMissionPage(m Menu) *settingsPage {
 	mContainer.AddChild(missionCard)
 
 	return &settingsPage{
-		title:    "Mission",
-		content:  c,
-		updaters: []settingsUpdater{missionCard},
+		title:           "Mission",
+		content:         c,
+		contentUpdaters: []contentUpdater{missionCard},
 	}
 }
 
@@ -245,9 +248,10 @@ func gameUnitPage(m Menu) *settingsPage {
 	c.AddChild(weaponGroupsButton)
 
 	return &settingsPage{
-		title:    "Unit",
-		content:  c,
-		updaters: []settingsUpdater{unitCard},
+		title:           "Unit",
+		content:         c,
+		contentUpdaters: []contentUpdater{unitCard},
+		tickUpdaters:    []tickUpdater{unitCard},
 	}
 }
 
