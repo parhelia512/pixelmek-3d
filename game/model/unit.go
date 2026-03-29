@@ -9,6 +9,7 @@ import (
 	"github.com/harbdog/raycaster-go/geom"
 	"github.com/harbdog/raycaster-go/geom3d"
 	"github.com/pixelmek-3d/pixelmek-3d/game/common"
+	"github.com/pixelmek-3d/pixelmek-3d/game/resources"
 )
 
 const (
@@ -58,6 +59,7 @@ type Unit interface {
 	Tonnage() float64
 	UnitType() UnitType
 
+	Firepower() float64
 	Heat() float64
 	MaxHeat() float64
 	HeatDissipation() float64
@@ -184,6 +186,23 @@ type UnitModel struct {
 	isPlayer            bool
 }
 
+func ListUnitFilenames() ([]string, error) {
+	unitFilenames := make([]string, 0, 64)
+	unitFiles, err := resources.ReadDir(UnitsResourceType, true)
+	if err != nil {
+		return unitFilenames, err
+	}
+
+	for _, f := range unitFiles {
+		if f.IsDir() {
+			continue
+		}
+		unitFilenames = append(unitFilenames, f.Name())
+	}
+
+	return unitFilenames, nil
+}
+
 func EntityUnit(entity Entity) Unit {
 	if unit, ok := entity.(Unit); ok {
 		return unit
@@ -242,6 +261,15 @@ func (e *UnitModel) UnitType() UnitType {
 
 func (e *UnitModel) Pitch() float64 {
 	return e.pitch
+}
+
+func (e *UnitModel) Firepower() float64 {
+	// return max alpha strike damage
+	firepower := 0.0
+	for _, w := range e.armament {
+		firepower += w.Damage()
+	}
+	return firepower
 }
 
 func (e *UnitModel) Heat() float64 {

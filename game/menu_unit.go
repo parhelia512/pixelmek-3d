@@ -11,14 +11,18 @@ import (
 	"github.com/ebitenui/ebitenui/widget"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/harbdog/raycaster-go/geom"
 	"github.com/pixelmek-3d/pixelmek-3d/game/model"
 	"github.com/pixelmek-3d/pixelmek-3d/game/render/sprites"
+	"github.com/pixelmek-3d/pixelmek-3d/game/resources"
+	"github.com/tinne26/etxt"
 )
 
 type UnitMenu struct {
 	*MenuModel
 	purpose      UnitMenuPurpose
 	selectedUnit model.Unit
+	tickUpdaters []tickUpdater
 }
 
 type UnitMenuPurpose int
@@ -54,11 +58,17 @@ const (
 
 type UnitCard struct {
 	*widget.Container
-	style       UnitCardStyle
-	unit        model.Unit
-	unitContent *widget.Container
-	armsContent *widget.Container
-	res         *uiResources
+	style        UnitCardStyle
+	res          *uiResources
+	fontRenderer *etxt.Renderer
+	unit         model.Unit
+	unitContent  *widget.Container
+	armsContent  *widget.Container
+
+	sprite         any
+	spriteImg      *ebiten.Image
+	spriteImgScale float64
+	humanScaleImg  *ebiten.Image
 }
 
 type unitCardWeapon struct {
@@ -115,6 +125,9 @@ func (m *UnitMenu) initMenu() {
 }
 
 func (m *UnitMenu) Update() {
+	for _, updater := range m.tickUpdaters {
+		updater.update()
+	}
 	m.ui.Update()
 }
 
@@ -421,6 +434,7 @@ func (p *unitPage) setUnit(m *UnitMenu, unit model.Unit) {
 	p.unit = unit
 
 	unitCard := createUnitCard(m.game, m.Resources(), unit, UnitCardSelect)
+	m.setUnitCardUpdater(unitCard)
 	p.content.AddChild(unitCard)
 }
 
@@ -437,12 +451,22 @@ func createUnitCard(g *Game, res *uiResources, unit model.Unit, style UnitCardSt
 			widget.GridLayoutOpts.Spacing(0, 0)),
 		),
 	)
+	// create and configure font renderer
+	fontRenderer := etxt.NewRenderer()
+	fontRenderer.SetCacheHandler(g.fonts.HUDFont.FontCache.NewHandler())
+	fontRenderer.SetFont(g.fonts.HUDFont.Font)
+	fontRenderer.SetColor(color.NRGBA{255, 255, 255, 255})
+
 	unitCard := &UnitCard{
-		Container: cardContainer,
-		style:     style,
-		unit:      unit,
-		res:       res,
+		Container:    cardContainer,
+		style:        style,
+		fontRenderer: fontRenderer,
+		res:          res,
+		unit:         unit,
 	}
+
+	// load human image to show next to unit for scale
+	unitCard.humanScaleImg, _, _ = resources.NewImageFromFile("menu/human-scale.png")
 
 	switch style {
 	case UnitCardLaunch:
@@ -472,7 +496,12 @@ func createUnitCard(g *Game, res *uiResources, unit model.Unit, style UnitCardSt
 	var sprite *sprites.Sprite
 	switch interfaceType := unit.(type) {
 	case *model.Mech:
-		sprite = g.createUnitSprite(unit).(*sprites.MechSprite).Sprite
+		mSprite := g.CreateUnitSprite(unit).(*sprites.MechSprite)
+		sprite = mSprite.Sprite
+
+		// TODO: create interface for Sprite like was done for Unit to make things better
+		unitCard.sprite = mSprite
+		mSprite.SetMechAnimation(sprites.MECH_ANIMATE_STRUT, false)
 	case nil:
 		// nil represents random unit selection
 		sprite = nil
@@ -484,19 +513,18 @@ func createUnitCard(g *Game, res *uiResources, unit model.Unit, style UnitCardSt
 	if sprite == nil {
 		imageLabel = widget.NewLabel(widget.LabelOpts.Text("?", res.fonts.bigTitleFace, res.label.text))
 	} else {
+		// TODO: scale sprite image size based on unit height
 		imageH := float64(g.screenHeight) / 5
 		spriteW, spriteH := float64(sprite.Texture().Bounds().Dx()), float64(sprite.Texture().Bounds().Dy())
 		imageScale := imageH / spriteH
 
 		unitImage := ebiten.NewImage(int(spriteW*imageScale), int(spriteH*imageScale))
-		op := &ebiten.DrawImageOptions{}
-		op.Filter = ebiten.FilterNearest
-		op.GeoM.Scale(imageScale, imageScale)
-		unitImage.DrawImage(sprite.Texture(), op)
-
 		imageLabel = widget.NewGraphic(
 			widget.GraphicOpts.Image(unitImage),
 		)
+
+		unitCard.spriteImg = unitImage
+		unitCard.spriteImgScale = sprite.Scale() * imageScale
 	}
 	unitTable.AddChild(imageLabel)
 
@@ -533,9 +561,54 @@ func createUnitCard(g *Game, res *uiResources, unit model.Unit, style UnitCardSt
 	// unit weapons and ammo
 	unitCard.updateArmamentContent()
 
-	// TODO: add more content
-
 	return unitCard
+}
+
+func (m *UnitMenu) setUnitCardUpdater(c *UnitCard) {
+	// make sure only one unit card is set at a time
+	newTickUpdaters := make([]tickUpdater, 0, len(m.tickUpdaters)+1)
+	for _, updater := range m.tickUpdaters {
+		if _, found := updater.(*UnitCard); found {
+			continue
+		}
+		newTickUpdaters = append(newTickUpdaters, updater)
+	}
+	newTickUpdaters = append(newTickUpdaters, c)
+	m.tickUpdaters = newTickUpdaters
+}
+
+func (c *UnitCard) update() {
+	if c.sprite == nil || c.spriteImg == nil {
+		return
+	}
+
+	var img *ebiten.Image
+
+	switch c.sprite.(type) {
+	case *sprites.MechSprite:
+		mSprite := c.sprite.(*sprites.MechSprite)
+		mSprite.Update(nil)
+		img = mSprite.Texture()
+	}
+	if img == nil {
+		return
+	}
+
+	w, h := float64(c.spriteImg.Bounds().Dx()), float64(c.spriteImg.Bounds().Dy())
+	c.spriteImg.Clear()
+
+	// draw a unit meter height scale
+	offX := c.drawUnitHeightScale(c.spriteImg)
+
+	// determine sprite translation so it renders at bottom center of sprite image space
+	tW, tH := float64(img.Bounds().Dx())*c.spriteImgScale, float64(img.Bounds().Dy())*c.spriteImgScale
+	tX, tY := offX+(w-tW)/2, (h - tH)
+
+	op := &ebiten.DrawImageOptions{}
+	op.Filter = ebiten.FilterNearest
+	op.GeoM.Scale(c.spriteImgScale, c.spriteImgScale)
+	op.GeoM.Translate(tX, tY)
+	c.spriteImg.DrawImage(img, op)
 }
 
 func (c *UnitCard) updateUnitContent() {
@@ -572,6 +645,17 @@ func (c *UnitCard) updateUnitContent() {
 	unitContent.AddChild(newUnitContentText(res, "Mass:"))
 	unitContent.AddChild(massPips)
 	unitContent.AddChild(massText)
+
+	firepower := unit.Firepower()
+	firepowerString := fmt.Sprintf("%0.1f", firepower)
+	firepowerText := newUnitContentText(res, firepowerString)
+	firepowerPipsImg := unitPipsRatingImage(res, uint(firepower), 10, color.NRGBA{R: 200, G: 0, B: 0, A: 255})
+	firepowerPips := widget.NewGraphic(
+		widget.GraphicOpts.Image(firepowerPipsImg),
+	)
+	unitContent.AddChild(newUnitContentText(res, "Firepower:"))
+	unitContent.AddChild(firepowerPips)
+	unitContent.AddChild(firepowerText)
 
 	topSpeedKph := unit.MaxVelocity() * model.VELOCITY_TO_KPH
 	speedString := fmt.Sprintf("%0.1f kph", topSpeedKph)
@@ -715,7 +799,7 @@ func (c *UnitCard) updateArmamentContent() {
 	}
 }
 
-func (c *UnitCard) update(g *Game) {
+func (c *UnitCard) updateContent(g *Game) {
 	if c.unit == nil {
 		return
 	}
@@ -725,6 +809,52 @@ func (c *UnitCard) update(g *Game) {
 		c.updateUnitContent()
 		c.updateArmamentContent()
 	}
+}
+
+func (c *UnitCard) drawUnitHeightScale(img *ebiten.Image) float64 {
+	h := float64(img.Bounds().Dy())
+
+	// draw scale number text
+	fontPxSize := h / 12
+	if fontPxSize < 1 {
+		fontPxSize = 1
+	}
+	c.fontRenderer.SetSize(fontPxSize)
+	c.fontRenderer.SetAlign(etxt.Top | etxt.Left)
+	c.fontRenderer.Draw(img, "20", 0, -1)
+	c.fontRenderer.SetAlign(etxt.VertCenter | etxt.Left)
+	c.fontRenderer.Draw(img, "10", 0, int(h/2))
+	c.fontRenderer.SetAlign(etxt.Bottom | etxt.Left)
+	c.fontRenderer.Draw(img, " m", 0, int(h+1))
+
+	// adjust offset of left side of scale to fit number text
+	offX := float32(math.Ceil(fontPxSize * 1.5))
+
+	if c.humanScaleImg != nil {
+		// draw human scale image
+		humanScaleImgHeight := float64(c.humanScaleImg.Bounds().Dy())
+		humanScale := (2.0 / model.METERS_PER_UNIT) * (h / humanScaleImgHeight)
+		humanScaleH := humanScaleImgHeight * humanScale
+		op := &ebiten.DrawImageOptions{}
+		op.Filter = ebiten.FilterPixelated
+		op.GeoM.Scale(humanScale, humanScale)
+		op.GeoM.Translate(float64(offX+10), h-humanScaleH)
+		img.DrawImage(c.humanScaleImg, op)
+	}
+
+	// TODO: stroke thickness based on image size
+	sT := float32(2)
+	// vertical scale lines
+	vector.StrokeLine(img, offX+sT/2, 0, offX+sT/2, float32(h), sT, color.White, false)
+
+	// left horizontal indicator pips
+	vector.StrokeLine(img, offX+sT, sT/2, offX+sT+6, sT/2, sT, color.White, false)
+	vector.StrokeLine(img, offX+sT, float32(h/4)-sT/2, offX+sT+4, float32(h/4)-sT/2, sT, color.White, false)
+	vector.StrokeLine(img, offX+sT, float32(h/2)-sT/2, offX+sT+6, float32(h/2)-sT/2, sT, color.White, false)
+	vector.StrokeLine(img, offX+sT, float32(3*h/4)-sT/2, offX+sT+4, float32(3*h/4)-sT/2, sT, color.White, false)
+	vector.StrokeLine(img, offX+sT, float32(h)-sT/2, offX+sT+6, float32(h)-sT/2, sT, color.White, false)
+
+	return float64(offX)
 }
 
 func newUnitContentText(res *uiResources, str string) *widget.Text {
@@ -767,18 +897,13 @@ func armamentSummary(unit model.Unit) []*unitCardWeapon {
 
 // unitPipsRatingImage creates a simple series of rectangular pips of a normalized size (`n / nStep` out of 10 pips)
 func unitPipsRatingImage(res *uiResources, n, nStep uint, clr color.Color) *ebiten.Image {
-	nPips := uint(math.Round(float64(n) / float64(nStep)))
+	// min 0, max 10 pips
+	nPips := geom.ClampInt(int(math.Round(float64(n)/float64(nStep))), 0, 10)
 
 	// dynamic image size from menu size
 	size := float64(res.menuSize) * (float64(1) / float64(30))
 	w, h := int(size)*5, int(size)
-
 	pipSpacing := float32(w) / 10
-	if nPips > 10 {
-		// increase width if `nPips` needs it, though it should not be used in such a way it gets too much bigger
-		ratio := float64(nPips) / 10
-		w = int(float64(w) * ratio)
-	}
 
 	img := ebiten.NewImage(w, h) // TODO: use the UI size to determine width/height
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ebitenui/ebitenui/widget"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/pixelmek-3d/pixelmek-3d/game/common"
 	"github.com/pixelmek-3d/pixelmek-3d/game/model"
 	"github.com/pixelmek-3d/pixelmek-3d/game/render"
 	"github.com/pixelmek-3d/pixelmek-3d/game/resources"
@@ -19,18 +20,21 @@ type settingsPageContainer struct {
 }
 
 type settingsPage struct {
-	title    string
-	content  widget.PreferredSizeLocateableWidget
-	updaters []settingsUpdater
+	title           string
+	content         widget.PreferredSizeLocateableWidget
+	contentUpdaters []contentUpdater
+	tickUpdaters    []tickUpdater
 }
 
-type settingsUpdater interface {
-	update(*Game)
+func (s *settingsPage) update() {
+	for _, updater := range s.tickUpdaters {
+		updater.update()
+	}
 }
 
-func (s *settingsPage) update(g *Game) {
-	for _, updater := range s.updaters {
-		updater.update(g)
+func (s *settingsPage) updateContent(g *Game) {
+	for _, updater := range s.contentUpdaters {
+		updater.updateContent(g)
 	}
 }
 
@@ -72,8 +76,8 @@ func gameOptionsPage(m Menu) *settingsPage {
 
 	_updateDifficulty := func(difficulty *DifficultyLevel) {
 		game.difficulty = difficulty
-		enemyDamageModifierLabel.Label = fmt.Sprintf("Enemy Damage Taken: %0.1fx", game.difficulty.EnemyDamageTakenModifier)
-		playerDamageModifierLabel.Label = fmt.Sprintf("Player Damage Taken: %0.1fx", game.difficulty.PlayerDamageTakenModifier)
+		enemyDamageModifierLabel.Label = fmt.Sprintf("Enemy Damage Taken: %sx", common.FloatDisplayString(game.difficulty.EnemyDamageTakenModifier))
+		playerDamageModifierLabel.Label = fmt.Sprintf("Player Damage Taken: %sx", common.FloatDisplayString(game.difficulty.PlayerDamageTakenModifier))
 
 		ffStr := "OFF"
 		if difficulty.FriendlyFireEnabled {
@@ -92,8 +96,8 @@ func gameOptionsPage(m Menu) *settingsPage {
 			return fmt.Sprintf("%s", e)
 		},
 		func(args *widget.ListComboButtonEntrySelectedEventArgs) {
-			r := args.Entry.(*DifficultyLevel)
-			_updateDifficulty(r)
+			d := args.Entry.(*DifficultyLevel)
+			_updateDifficulty(d)
 		},
 		res)
 	difficultyColumn.AddChild(difficultyCombo)
@@ -193,9 +197,9 @@ func gameMissionPage(m Menu) *settingsPage {
 	mContainer.AddChild(missionCard)
 
 	return &settingsPage{
-		title:    "Mission",
-		content:  c,
-		updaters: []settingsUpdater{missionCard},
+		title:           "Mission",
+		content:         c,
+		contentUpdaters: []contentUpdater{missionCard},
 	}
 }
 
@@ -244,9 +248,10 @@ func gameUnitPage(m Menu) *settingsPage {
 	c.AddChild(weaponGroupsButton)
 
 	return &settingsPage{
-		title:    "Unit",
-		content:  c,
-		updaters: []settingsUpdater{unitCard},
+		title:           "Unit",
+		content:         c,
+		contentUpdaters: []contentUpdater{unitCard},
+		tickUpdaters:    []tickUpdater{unitCard},
 	}
 }
 

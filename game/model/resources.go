@@ -17,6 +17,7 @@ import (
 const YAMLExtension string = ".yaml"
 
 const (
+	UnitsResourceType       string = "units"
 	MechResourceType        string = "mechs"
 	VehicleResourceType     string = "vehicles"
 	VTOLResourceType        string = "vtols"
@@ -376,8 +377,7 @@ func (r *ModelResources) loadUnitResources() error {
 	// load and validate all units
 	v := validator.New()
 
-	unitsPath := "units"
-	unitsTypes, err := resources.ReadDir(unitsPath)
+	unitsTypes, err := resources.ReadDir(UnitsResourceType, false)
 	if err != nil {
 		return err
 	}
@@ -389,8 +389,8 @@ func (r *ModelResources) loadUnitResources() error {
 		}
 
 		unitType := t.Name()
-		unitTypePath := path.Join(unitsPath, unitType)
-		unitFiles, err := resources.ReadDir(unitTypePath)
+		unitTypePath := path.Join(UnitsResourceType, unitType)
+		unitFiles, err := resources.ReadDir(unitTypePath, true)
 		if err != nil {
 			return err
 		}
@@ -415,7 +415,6 @@ func (r *ModelResources) loadUnitResources() error {
 
 		for _, u := range unitFiles {
 			if u.IsDir() {
-				// TODO: support recursive directory structure?
 				continue
 			}
 
@@ -513,7 +512,7 @@ func (r *ModelResources) loadWeaponResources() error {
 	v := validator.New()
 
 	weaponsPath := "weapons"
-	weaponsTypes, err := resources.ReadDir(weaponsPath)
+	weaponsTypes, err := resources.ReadDir(weaponsPath, false)
 	if err != nil {
 		return err
 	}
@@ -526,7 +525,7 @@ func (r *ModelResources) loadWeaponResources() error {
 
 		weaponType := t.Name()
 		weaponTypePath := path.Join(weaponsPath, weaponType)
-		weaponFiles, err := resources.ReadDir(weaponTypePath)
+		weaponFiles, err := resources.ReadDir(weaponTypePath, true)
 		if err != nil {
 			return err
 		}
