@@ -232,6 +232,9 @@ func (g *Game) Run() {
 
 func (g *Game) Pause() {
 	g.paused = true
+	if g.mission != nil {
+		g.mission.TimerPause()
+	}
 	g.audio.PauseMusic()
 	g.audio.PauseSFX()
 }
@@ -239,6 +242,9 @@ func (g *Game) Pause() {
 func (g *Game) Resume() {
 	g.audio.ResumeMusic()
 	g.audio.ResumeSFX()
+	if g.mission != nil {
+		g.mission.TimerStart()
+	}
 	g.paused = false
 }
 
@@ -607,8 +613,8 @@ func (g *Game) targetCycle(cycleType TargetCycleType) model.Entity {
 
 	for _, p := range pSprites {
 		s := p.sprite
-		if g.IsFriendly(g.player, s.Entity) {
-			// skip friendly units
+		if g.IsFriendly(g.player, s.Entity) || !g.IsTargetable(g.player, s.Unit()) {
+			// skip friendly and untargetable units
 			continue
 		}
 		targetables = append(targetables, s)
@@ -696,6 +702,27 @@ func (g *Game) IsFriendly(e1, e2 model.Entity) bool {
 		return e1.Team() < 0 && e2.Team() < 0
 	}
 	return e1.Team() == e2.Team()
+}
+
+// IsTargetable returns true if the source unit is able to target the target unit based on current distance and power conditions
+func (g *Game) IsTargetable(source, target model.Unit) bool {
+	if target == nil {
+		return false
+	}
+	sPos, tPos := source.Pos(), target.Pos()
+	tDist := geom.Distance(sPos.X, sPos.Y, tPos.X, tPos.Y)
+	return g.IsTargetableAtDistance(source, target, tDist)
+}
+
+// IsTargetableAtDistance returns true if the source unit is able to target the target unit based on given distance and power conditions
+func (g *Game) IsTargetableAtDistance(source, target model.Unit, distance float64) bool {
+	if target == nil || source.Powered() != model.POWER_ON {
+		return false
+	}
+	if target.Powered() != model.POWER_ON {
+		return distance <= 200/model.METERS_PER_UNIT
+	}
+	return distance <= 1000/model.METERS_PER_UNIT
 }
 
 func randFloat(min, max float64) float64 {

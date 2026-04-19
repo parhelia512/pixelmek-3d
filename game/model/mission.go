@@ -7,6 +7,7 @@ import (
 	"github.com/pixelmek-3d/pixelmek-3d/game/resources"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/go-youtils/stopwatch"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/harbdog/raycaster-go/geom"
 	"gopkg.in/yaml.v3"
@@ -16,6 +17,7 @@ import (
 
 type Mission struct {
 	missionMap   *Map
+	missionTimer *stopwatch.Stopwatch
 	Title        string              `yaml:"title" validate:"required"`
 	Briefing     string              `yaml:"briefing" validate:"required"`
 	MapPath      string              `yaml:"map" validate:"required"`
@@ -40,7 +42,8 @@ type Mission struct {
 }
 
 func NewMissionFromMapPath(mapPath string) (*Mission, error) {
-	m := &Mission{MapPath: mapPath}
+	m := newMission()
+	m.MapPath = mapPath
 	err := m.loadMissionMap()
 	if err != nil {
 		return nil, err
@@ -49,7 +52,8 @@ func NewMissionFromMapPath(mapPath string) (*Mission, error) {
 }
 
 func NewMissionFromMap(missionMap *Map) (*Mission, error) {
-	m := &Mission{missionMap: missionMap}
+	m := newMission()
+	m.missionMap = missionMap
 	err := m.loadMissionMap()
 	if err != nil {
 		return nil, err
@@ -57,13 +61,32 @@ func NewMissionFromMap(missionMap *Map) (*Mission, error) {
 	return m, nil
 }
 
+func newMission() *Mission {
+	m := &Mission{}
+	m.missionTimer = stopwatch.NewStopwatch()
+	return m
+}
+
 func (m *Mission) Map() *Map {
 	return m.missionMap
 }
 
+func (m *Mission) TimerPause() {
+	m.missionTimer.Stop()
+}
+
+func (m *Mission) TimerStart() {
+	m.missionTimer.Start()
+}
+
+func (m *Mission) TimerSeconds() float64 {
+	return m.missionTimer.Seconds()
+}
+
 type DropZone struct {
-	Position [2]float64 `yaml:"position"`
-	Heading  float64    `yaml:"heading"`
+	Position    [2]float64      `yaml:"position"`
+	Heading     float64         `yaml:"heading"`
+	PowerStatus UnitPowerStatus `yaml:"powerStatus"`
 }
 
 type SpawnPoint struct {
@@ -128,6 +151,8 @@ type MissionUnit struct {
 	PatrolPath [][2]float64     `yaml:"patrolPath"`
 	GuardArea  MissionGuardArea `yaml:"guardArea"`
 	GuardUnit  string           `yaml:"guardUnit"`
+
+	PowerConditions UnitPowerConditions `yaml:"powerConditions"`
 }
 
 func (m MissionUnit) GetUnit() string {
@@ -152,6 +177,8 @@ type MissionFlyingUnit struct {
 	PatrolPath [][2]float64     `yaml:"patrolPath"`
 	GuardArea  MissionGuardArea `yaml:"guardArea"`
 	GuardUnit  string           `yaml:"guardUnit"`
+
+	PowerConditions UnitPowerConditions `yaml:"powerConditions"`
 }
 
 func (m MissionFlyingUnit) GetUnit() string {
@@ -236,7 +263,7 @@ func LoadMission(missionFile string) (*Mission, error) {
 		return nil, err
 	}
 
-	m := &Mission{}
+	m := newMission()
 	err = yaml.Unmarshal(missionYaml, m)
 	if err != nil {
 		return nil, err
@@ -246,6 +273,9 @@ func LoadMission(missionFile string) (*Mission, error) {
 	if err != nil {
 		return nil, fmt.Errorf("[%s] %s", missionPath, err.Error())
 	}
+
+	// TODO: verify things that reference id/names of other things in the mission yaml, such as:
+	//       navPointVisited is defined as a navPoint name, and unitDestroyed defined as a unit id
 
 	// load mission map
 	err = m.loadMissionMap()
@@ -270,11 +300,22 @@ func (m *Mission) loadMissionMap() error {
 	m.Pathing = initPathing(m)
 
 	// apply any defaults from map
-	if m.DropZone == nil {
-		m.DropZone = &m.missionMap.DropZone
-	}
 	if m.MusicPath == "" && m.missionMap.MusicPath != "" {
 		m.MusicPath = m.missionMap.MusicPath
+	}
+
+	if m.DropZone == nil {
+		if m.missionMap.DropZone.Position == [2]float64{0, 0} {
+			// generate random dropzone when not provided
+			rngPos, rngHeading := randPlayerSpawnLocation(m.missionMap)
+			m.DropZone = &DropZone{
+				Position:    [2]float64{rngPos.X, rngPos.Y},
+				Heading:     rngHeading,
+				PowerStatus: POWER_OFF_MANUAL,
+			}
+		} else {
+			m.DropZone = &m.missionMap.DropZone
+		}
 	}
 
 	// apply optional overrides to map
@@ -288,6 +329,33 @@ func (m *Mission) loadMissionMap() error {
 		m.missionMap.SkyBox = *m.SkyBox
 	}
 	return nil
+}
+
+func randPlayerSpawnLocation(missionMap *Map) (geom.Vector2, float64) {
+	// generate random spawn point and heading outside some min distance from edge of map
+	rng := NewRNG()
+	rH := rng.RandFloat64In(0, geom.Pi2)
+
+	// set some minimium offset distance from edge of map, taking into account very small maps
+	w, h := missionMap.Size()
+	offX, offY := 25, 25
+	if offX > w/4 {
+		offX = w / 4
+	}
+	if offY > h/4 {
+		offY = h / 4
+	}
+	minX, maxX := offX, w-offX
+	minY, maxY := offY, h-offY
+
+	rX := rng.RandIntIn(minX, maxX)
+	rY := rng.RandIntIn(minY, maxY)
+	for missionMap.IsWallAt(0, rX, rY) {
+		// location is in a wall, re-roll
+		rX = rng.RandIntIn(minX, maxX)
+		rY = rng.RandIntIn(minY, maxY)
+	}
+	return geom.Vector2{X: float64(rX) + 0.5, Y: float64(rY) + 0.5}, rH
 }
 
 func ListMissionFilenames() ([]string, error) {

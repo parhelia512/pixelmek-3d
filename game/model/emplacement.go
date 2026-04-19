@@ -33,7 +33,7 @@ func NewEmplacement(r *ModelEmplacementResource) *Emplacement {
 			maxVelocity:   0,
 			maxTurnRate:   EMPLACEMENT_TURRET_RATE_FACTOR,
 			maxTurretRate: EMPLACEMENT_TURRET_RATE_FACTOR,
-			powered:       POWER_ON, // TODO: define initial power status or power on event in mission resource
+			powered:       POWER_ON,
 		},
 	}
 
@@ -111,25 +111,11 @@ func (e *Emplacement) TurnRate() float64 {
 	return e.maxTurnRate
 }
 
+func (e *Emplacement) SetPowered(powered UnitPowerStatus) {
+	e.powered = powered
+}
+
 func (e *Emplacement) Update() bool {
-	isOverHeated := e.OverHeated()
-	if e.powered == POWER_ON {
-		// if heat is too high, auto shutdown
-		if isOverHeated {
-			e.SetPowered(POWER_OFF_HEAT)
-		}
-	} else {
-		switch {
-		case isOverHeated:
-			// continue cooling down
-			break
-
-		case e.powered == POWER_OFF_HEAT && !isOverHeated:
-			// set power on automatically after overheat status is cleared
-			e.SetPowered(POWER_ON)
-		}
-	}
-
 	if e.needsUpdate() {
 		e.UnitModel.update()
 	} else {

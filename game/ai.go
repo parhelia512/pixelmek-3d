@@ -444,7 +444,18 @@ func (h *AIHandler) Update() {
 	// only update AI whose initiative slot is next
 	turnAI := h.initiative.Next()
 	for _, a := range turnAI {
-		if a.u.IsDestroyed() || a.u.Powered() != model.POWER_ON {
+		if a.u.IsDestroyed() {
+			continue
+		}
+
+		powerStatus := a.u.Powered()
+		if powerStatus == model.POWER_OFF_MANUAL {
+			// use mission unit power on conditions to decide when to initiate power on
+			if h.isUnitPowerConditionMet(a.u) {
+				a.u.SetPowered(model.POWER_ON)
+			}
+			continue
+		} else if powerStatus != model.POWER_ON {
 			continue
 		}
 
@@ -459,6 +470,51 @@ func (h *AIHandler) Update() {
 			log.Error(err)
 		}
 	}
+}
+
+// return true if any one of the set power conditions are met
+func (h *AIHandler) isUnitPowerConditionMet(u model.Unit) bool {
+	pConditions := u.PowerConditions()
+	if pConditions == nil {
+		return true
+	}
+	if h.g.mission == nil {
+		return false
+	}
+	if pConditions.MissionTimeElapsed > 0 {
+		// check if the mission timer has met the elapsed time condition
+		if int(h.g.mission.TimerSeconds()) >= pConditions.MissionTimeElapsed {
+			return true
+		}
+	}
+	if len(pConditions.NavPointVisited) > 0 {
+		// check if the mission nav point has been visited by player yet
+		for _, nav := range h.g.mission.NavPoints {
+			if nav.Name == pConditions.NavPointVisited {
+				if nav.Visited() {
+					return true
+				}
+				break
+			}
+		}
+	}
+	if len(pConditions.MissionUnitDestroyed) > 0 {
+		// check if the referenced unit id is destroyed
+		mUnit := h.g.getSpriteUnitByID(pConditions.MissionUnitDestroyed)
+		if mUnit == nil || mUnit.IsDestroyed() {
+			return true
+		}
+	}
+	if pConditions.PlayerDistance > 0 {
+		// calculate distance (in meters) from player, return true if <= distance
+		uPos := u.Pos()
+		pPos := h.g.player.Pos()
+		pDist := geom.Distance(uPos.X, uPos.Y, pPos.X, pPos.Y) * model.METERS_PER_UNIT
+		if pDist <= float64(pConditions.PlayerDistance) {
+			return true
+		}
+	}
+	return false
 }
 
 func NewAIGunnery(u model.Unit) *AIGunnery {

@@ -50,10 +50,12 @@ func NewGameScene(g *Game) Scene {
 		scene.benchmark = NewBenchmarkHandler()
 	}
 
+	g.mission.TimerStart()
 	return scene
 }
 
 func (g *Game) LeaveGame() {
+	g.paused = true
 	if gs, ok := g.scene.(*GameScene); ok && gs.benchmark != nil {
 		// close benchmark
 		gs.benchmark.Close()
@@ -111,6 +113,9 @@ func (s *GameScene) Update() error {
 
 		// handle player camera movement
 		g.updatePlayerCamera(false)
+
+		// handle player HUD tick-based udpates
+		g.updateHUD()
 
 		if g.InProgress() {
 			if s.transition != nil {
